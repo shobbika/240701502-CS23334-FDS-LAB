@@ -1,1 +1,191 @@
+import os
+print(os.getcwd())
+import os
+os.chdir(r"C:\Users\Anish Veera\Downloads\movies_lensfds")
+print(" Current working directory:", os.getcwd())
+# -------------------------------------------------------------
+# STEP 1: Import Libraries
+# -------------------------------------------------------------
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import KMeans
 
+# Display settings
+pd.set_option('display.max_columns', None)
+sns.set(style='whitegrid')
+
+print(" Libraries Imported Successfully")
+# -------------------------------------------------------------
+# STEP 2: Load Datasets
+# -------------------------------------------------------------
+movies = pd.read_csv('movies.csv')
+ratings = pd.read_csv('ratings.csv')
+tags = pd.read_csv('tags.csv')
+links = pd.read_csv('links.csv')
+
+print(" Files Loaded Successfully!")
+# -------------------------------------------------------------
+# STEP 3: Explore the Data
+# -------------------------------------------------------------
+print("Movies Dataset:")
+display(movies.head())
+
+print("\nRatings Dataset:")
+display(ratings.head())
+
+print("\nTags Dataset:")
+display(tags.head())
+
+print("\nLinks Dataset:")
+display(links.head())
+# -------------------------------------------------------------
+# STEP 4: Merge Datasets
+# -------------------------------------------------------------
+data = pd.merge(ratings, movies, on='movieId', how='left')
+data = pd.merge(data, tags[['movieId', 'tag']], on='movieId', how='left')
+data = pd.merge(data, links, on='movieId', how='left')
+
+# FIXED: avoid chained assignment warning
+data['tag'] = data['tag'].fillna('No Tag')
+
+print(" Datasets Merged Successfully!")
+display(data.head())
+# -------------------------------------------------------------
+# STEP 5: Data Cleaning & Preprocessing
+# -------------------------------------------------------------
+print("Missing Values in Data:")
+print(data.isnull().sum())
+
+# Remove duplicates
+data.drop_duplicates(inplace=True)
+
+# Scale rating (0 to 1)
+scaler = MinMaxScaler()
+data['rating_scaled'] = scaler.fit_transform(data[['rating']])
+
+print("\n Data Cleaned and Scaled:")
+display(data.head())
+# -------------------------------------------------------------
+# STEP 6: Exploratory Data Analysis (EDA)
+# -------------------------------------------------------------
+
+# Distribution of Ratings
+plt.figure(figsize=(6,4))
+sns.countplot(x='rating', data=ratings, hue='rating', palette='viridis', legend=False)
+plt.title("Distribution of Movie Ratings")
+plt.xlabel("Rating")
+plt.ylabel("Count")
+plt.show()
+
+# Top 10 Most Rated Movies
+top_movies = ratings['movieId'].value_counts().head(10)
+plt.figure(figsize=(8,4))
+sns.barplot(
+    x=top_movies.values,
+    y=top_movies.index,
+    hue=top_movies.index,
+    palette='mako',
+    legend=False
+)
+plt.title("Top 10 Most Rated Movies")
+plt.xlabel("Number of Ratings")
+plt.ylabel("Movie ID")
+plt.show()
+
+# Top 10 Most Common Tags
+top_tags = data['tag'].value_counts().head(10)
+plt.figure(figsize=(8,4))
+sns.barplot(
+    x=top_tags.values,
+    y=top_tags.index,
+    hue=top_tags.index,
+    palette='coolwarm',
+    legend=False
+)
+plt.title("Top 10 Most Common Tags")
+plt.xlabel("Count")
+plt.ylabel("Tag")
+plt.show()
+# -------------------------------------------------------------
+# STEP 7: Simple Recommendation Logic
+# -------------------------------------------------------------
+movie_ratings = data.groupby('title')['rating'].mean().sort_values(ascending=False).head(10)
+print(" Top 10 Highest Rated Movies:")
+display(movie_ratings)
+
+# Recommend by tag
+def recommend_by_tag(tag_name):
+    tag_movies = data[data['tag'].str.contains(tag_name, case=False, na=False)]
+    recommendations = tag_movies.groupby('title')['rating'].mean().sort_values(ascending=False).head(5)
+    return recommendations
+
+print("\n Top movies with tag 'romantic':")
+display(recommend_by_tag('romantic'))
+# -------------------------------------------------------------
+# STEP 8: Linear Regression Model
+# -------------------------------------------------------------
+movie_encoded = pd.factorize(data['title'])[0]
+user_encoded = pd.factorize(data['userId'])[0]
+
+X = pd.DataFrame({
+    'user_encoded': user_encoded,
+    'movie_encoded': movie_encoded
+})
+y = data['rating_scaled']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+model = LinearRegression()
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+print(f"Linear Regression Model RMSE: {rmse:.4f}")
+# -------------------------------------------------------------
+# STEP 9: K-Means Clustering (fixed to avoid loky/joblib warning)
+# -------------------------------------------------------------
+import os
+import multiprocessing
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 1) Set LOKY_MAX_CPU_COUNT so loky won't call wmic on Windows.
+#    Use the number of logical CPUs (safe and portable).
+os.environ['LOKY_MAX_CPU_COUNT'] = str(os.cpu_count() or 1)
+
+# 2) Prepare movie features: average rating per movie
+movie_features = ratings.groupby('movieId', as_index=False)['rating'].mean()
+
+# 3) Fit KMeans (set n_init explicitly to avoid future warnings)
+kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+movie_features['cluster'] = kmeans.fit_predict(movie_features[['rating']])
+
+print("🎞 Movie Clusters Based on Average Ratings:")
+display(movie_features.head())
+
+# 4) Plot clusters (convert cluster to categorical for better legend)
+movie_features['cluster'] = movie_features['cluster'].astype(str)
+
+plt.figure(figsize=(8,5))
+sns.scatterplot(
+    x='movieId',
+    y='rating',
+    hue='cluster',
+    data=movie_features,
+    palette='Set2',
+    legend='full',
+    s=60,
+    edgecolor='k',
+    alpha=0.8
+)
+plt.title("K-Means Clusters of Movies Based on Average Ratings")
+plt.xlabel("Movie ID")
+plt.ylabel("Average Rating")
+plt.show()
